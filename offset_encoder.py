@@ -24,27 +24,16 @@ class OffsetNetwork(VQVAE):
         for params in self.vqvae.parameters():
             params.requires_grad = False
 
-    def forward(self, frames, next_frames, offset_only=False):
+    def forward(self, frames, next_frames, offset_only=False, offset_weight=1):
         inputs = torch.cat((frames, next_frames), dim=1)
         offset_quant_t, offset_quant_b, diff, _, _ = self.encode(inputs)
 
-        quant_t = offset_quant_t
-        quant_b = offset_quant_b
+        quant_t = offset_weight * offset_quant_t
+        quant_b = offset_weight * offset_quant_b
         if not offset_only:
             frame1_quant_t, frame1_quant_b, _, _, _ = self.vqvae.encode(frames)
             quant_t += frame1_quant_t
             quant_b += frame1_quant_b
-
-        dec = self.vqvae.decode(quant_t, quant_b)
-        return dec, diff
-
-    def forward_offset(self, frames, next_frames, only_offset=False):
-        inputs = torch.cat((frames, next_frames), dim=1)
-        offset_quant_t, offset_quant_b, diff, _, _ = self.encode(inputs)
-        # frame1_quant_t, frame1_quant_b, _, _, _ = self.vqvae.encode(frames)
-        
-        quant_t = offset_quant_t
-        quant_b = offset_quant_b
 
         dec = self.vqvae.decode(quant_t, quant_b)
         return dec, diff
