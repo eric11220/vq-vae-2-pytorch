@@ -1,5 +1,6 @@
 import argparse
 import numpy as np
+import random
 import torch
 from torch import nn
 from torch.utils.data import DataLoader
@@ -19,23 +20,18 @@ def parse_args():
     parser.add_argument("--size", type=int, default=256)
     parser.add_argument("--result-dir", default="results")
     parser.add_argument("--offset-encoder", action='store_true')
+    parser.add_argument("--offset-weight", type=float, default=1.)
+    parser.add_argument("--mode", choices=['plot', 'mse'], default='plot')
 
     args = parser.parse_args()
     return args
 
-
-# def plot_reconst(orig, reconst, prefix):
-#     for i, (o, r) in enumerate(zip(orig, reconst)):
-#         path = f'{prefix}_img{i}.png'
-#         concat = np.concatenate((o, r), axis=1)
-#         concat = (concat / 2 + 0.5)
-#         concat[concat < 0.] = 0.
-#         concat[concat > 1.] = 1.
-#         plt.imsave(path, concat)
-
-
 args = parse_args()
 device = "cuda"
+
+torch.manual_seed(820)
+random.seed(820)
+np.random.seed(820)
 
 transform = transforms.Compose(
     [
@@ -46,13 +42,12 @@ transform = transforms.Compose(
     ]
 )
 
-if args.offset_encoder:
-    dataset = OffsetDataset(args.path, transform=transform)
-else:
-    dataset = datasets.ImageFolder(args.path, transform=transform)
+dataset = OffsetDataset(args.path, transform=transform)
 loader = DataLoader(
     dataset, batch_size=8, num_workers=2, shuffle=True
 )
+
+criterion = nn.MSELoss()
 
 if args.offset_encoder:
     model = OffsetNetwork(None).to(device)
@@ -72,24 +67,50 @@ except:
 
 model.eval()
 with torch.no_grad():
-    for i, (img, label_or_nextf) in enumerate(loader):
+    total_frame = 0
+    total_frame1_mse, total_frame2_mse = 0., 0.
+    for i, (img, next_frame) in enumerate(loader):
         img_t = img.to(device)
-        label_or_nextf = label_or_nextf.to(device)
+        next_frame = next_frame.to(device)
 
         if args.offset_encoder:
-            out, _ = model(img_t, label_or_nextf)
-            offset_out, _ = model(img_t, label_or_nextf, offset_only=True)
+            out, _ = model(img_t, next_frame)
+            if args.offset_weight != 1.:
+                offset_weighted_out, _ = model(img_t, next_frame, offset_weight=args.offset_weight)
+            else:
+                offset_weighted_out = None
+
+            offset_out, _ = model(img_t, next_frame, offset_only=True, offset_weight=args.offset_weight)
         else:
-            out, _ = model(img_t)
+            out, _ = model(next_frame)
 
-        # img = np.rollaxis(img.numpy(), 1, 4)
-        # out = np.rollaxis(out.cpu().numpy(), 1, 4)
-        # plot_reconst(img, out, prefix=f'results/batch_{i}')
+        if args.mode == 'plot':
+            to_plot = torch.cat([img_t, next_frame, out, offset_out], 0)
+            if offset_weighted_out is not None:
+                to_plot = torch.cat([to_plot, offset_weighted_out], 0)
 
-        utils.save_image(
-            torch.cat([img_t, label_or_nextf, out, offset_out], 0),
-            f"results/batch_{i}.png",
-            nrow=len(img_t),
-            normalize=True,
-            range=(-1, 1),
-        )
+            utils.save_image(
+                to_plot,
+                f"results/batch_{i}.png",
+                nrow=len(img_t),
+                normalize=True,
+                range=(-1, 1),
+            )
+        elif args.mode == 'mse':
+            if args.offset_encoder:
+                frame1_mse = 0.
+                frame2_mse = criterion(next_frame, out)
+
+                total_frame1_mse += frame1_mse * len(img)
+                total_frame2_mse += frame2_mse * len(img)
+                total_frame += len(img)
+            else:
+                frame1_mse = criterion(img_t, out)
+                frame2_mse = criterion(next_frame, out)
+
+                total_frame1_mse += frame1_mse * len(img)
+                total_frame2_mse += frame2_mse * len(img)
+                total_frame += len(img)
+
+    print(f'Pixel-wise MSE with frame 1: {total_frame1_mse/total_frame:.4f}, ' \
+        + f'Pixel-wise MSE with frame 2: {total_frame2_mse/total_frame:.4f}')
