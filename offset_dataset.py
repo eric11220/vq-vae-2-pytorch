@@ -23,6 +23,8 @@ class OffsetDataset(Dataset):
                 if os.path.isfile(next_frame_path):
                     self.path_pairs.append((frame_path, next_frame_path))
 
+        print(f'Total number of training data: {len(self.path_pairs)}')
+
     def __len__(self):
         return len(self.path_pairs)
 
