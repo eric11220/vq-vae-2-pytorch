@@ -100,7 +100,7 @@ def main(args):
         ]
     )
 
-    dataset = OffsetDataset(args.path, transform=transform)
+    dataset = OffsetDataset(args.path, transform=transform, offset=args.offset)
     sampler = dist.data_sampler(dataset, shuffle=True, distributed=args.distributed)
     loader = DataLoader(
         dataset, batch_size=args.bsize // args.n_gpu, sampler=sampler, num_workers=2
@@ -164,6 +164,8 @@ if __name__ == "__main__":
     parser.add_argument("--lr", type=float, default=3e-4)
     parser.add_argument("--sched", type=str)
     parser.add_argument("--bsize", type=int, default=128)
+
+    parser.add_argument("--offset", type=int, default=5)
 
     parser.add_argument("path", type=str)
     parser.add_argument("ckpt", type=str)
